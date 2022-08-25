@@ -12,6 +12,32 @@ import (
 
 	"github.com/Azure/go-ntlmssp"
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"github.com/jcmturner/gokrb5/v8/client"
+	"github.com/jcmturner/gokrb5/v8/config"
+	"github.com/jcmturner/gokrb5/v8/crypto"
+	"github.com/jcmturner/gokrb5/v8/messages"
+	"github.com/jcmturner/gokrb5/v8/types"
+)
+
+// cant seem to figure out how to add a [realm] though
+const (
+	libdefault = `[libdefaults]
+	default_realm = %s
+	dns_lookup_realm = false
+	dns_lookup_kdc = false
+	ticket_lifetime = 24h
+	renew_lifetime = 5
+	forwardable = yes
+	proxiable = true
+	default_tkt_enctypes = rc4-hmac
+	default_tgs_enctypes = rc4-hmac
+	noaddresses = true
+	udp_preference_limit=1
+	[realms]
+	%s = {
+	kdc = %s:88
+	default_domain = %s
+		}`
 )
 
 // SimpleBindRequest represents a username/password bind operation
@@ -557,4 +583,39 @@ func (l *Conn) NTLMChallengeBind(ntlmBindRequest *NTLMBindRequest) (*NTLMBindRes
 
 	err = GetLDAPError(packet)
 	return result, err
+}
+
+// GSSAPI Bind using gokrb5
+type GSSAPIBindRequest struct {
+	// Service Principal Name to try to get a service ticket for. With LDAP in
+	// most cases this will be "ldap/<hostname>"
+	SPN string
+	// Authorization entity to authenticate as
+	AuthZID string
+	// KRB5 client as an abstraction over Credentials coming from a keytab,
+	// ccache or freshly acquired from the KDC
+	//client *gssapi.Client
+	// Token
+	//token []byte
+	// Are we on the last step
+	//done bool
+	// Controls are optional controls to send with the bind request
+	Controls []Control
+}
+
+// GSSAPI Bind using your CCache with an empty AuthZID
+func (l *Conn) GSSAPICCBind() error {
+	c, _ := config.NewFromString(fmt.Sprintf(libdefault, "RANGE.COM", "RANGE.COM", "192.168.168.132", "RANGE.COM"))
+	cl := client.NewWithPassword("bobby", "RANGE.COM", "Welcome1!", c, client.DisablePAFXFAST(true), client.AssumePreAuthentication(false))
+
+	cl.Login()
+
+	tkt, ekey, _ := cl.GetServiceTicket("ldap/DC1.RANGE.COM")
+	auth, _ := types.NewAuthenticator(cl.Credentials.Realm(), cl.Credentials.CName())
+	etype, _ := crypto.GetEtype(ekey.KeyType)
+	auth.GenerateSeqNumberAndSubKey(ekey.KeyType, etype.GetKeyByteSize())
+	APReq, _ := messages.NewAPReq(tkt, ekey, auth)
+	fmt.Println(APReq.Marshal())
+
+	return nil
 }
