@@ -14,9 +14,8 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/jcmturner/gokrb5/v8/client"
 	"github.com/jcmturner/gokrb5/v8/config"
-	"github.com/jcmturner/gokrb5/v8/crypto"
-	"github.com/jcmturner/gokrb5/v8/messages"
-	"github.com/jcmturner/gokrb5/v8/types"
+	"github.com/jcmturner/gokrb5/v8/gssapi"
+	"github.com/jcmturner/gokrb5/v8/spnego"
 )
 
 // cant seem to figure out how to add a [realm] though
@@ -591,12 +590,12 @@ type GSSAPIBindRequest struct {
 	// most cases this will be "ldap/<hostname>"
 	SPN string
 	// Authorization entity to authenticate as
-	AuthZID string
+	//AuthZID string
 	// KRB5 client as an abstraction over Credentials coming from a keytab,
 	// ccache or freshly acquired from the KDC
-	//client *gssapi.Client
+	client *client.Client
 	// Token
-	//token []byte
+	token []byte
 	// Are we on the last step
 	//done bool
 	// Controls are optional controls to send with the bind request
@@ -605,17 +604,63 @@ type GSSAPIBindRequest struct {
 
 // GSSAPI Bind using your CCache with an empty AuthZID
 func (l *Conn) GSSAPICCBind() error {
+
 	c, _ := config.NewFromString(fmt.Sprintf(libdefault, "RANGE.COM", "RANGE.COM", "192.168.168.132", "RANGE.COM"))
 	cl := client.NewWithPassword("bobby", "RANGE.COM", "Welcome1!", c, client.DisablePAFXFAST(true), client.AssumePreAuthentication(false))
 
 	cl.Login()
 
 	tkt, ekey, _ := cl.GetServiceTicket("ldap/DC1.RANGE.COM")
-	auth, _ := types.NewAuthenticator(cl.Credentials.Realm(), cl.Credentials.CName())
-	etype, _ := crypto.GetEtype(ekey.KeyType)
-	auth.GenerateSeqNumberAndSubKey(ekey.KeyType, etype.GetKeyByteSize())
-	APReq, _ := messages.NewAPReq(tkt, ekey, auth)
-	fmt.Println(APReq.Marshal())
+	//auth, _ := types.NewAuthenticator(cl.Credentials.Realm(), cl.Credentials.CName())
+	//etype, _ := crypto.GetEtype(ekey.KeyType)
+	//auth.GenerateSeqNumberAndSubKey(ekey.KeyType, etype.GetKeyByteSize())
+	//APReq, _ := messages.NewAPReq(tkt, ekey, auth)
 
+	//apreq_token, _ := APReq.Marshal()
+
+	apreq_token, _ := spnego.NewKRB5TokenAPREQ(cl, tkt, ekey, []int{gssapi.ContextFlagInteg, gssapi.ContextFlagConf, gssapi.ContextFlagMutual}, []int{})
+	token, _ := apreq_token.Marshal()
+
+	req := &GSSAPIBindRequest{
+		SPN:    "ldap/dc1.range.com",
+		token:  token,
+		client: cl,
+	}
+
+	// Send request steps
+	msgCtx, err := l.doRequest(req)
+	if err != nil {
+		return nil
+	}
+	defer l.finishMessage(msgCtx)
+
+	packet, err := l.readPacket(msgCtx)
+	if err != nil {
+		return nil
+	}
+	l.Debug.Printf("%d: got response %p", msgCtx.id, packet)
+	if l.Debug {
+		if err = addLDAPDescriptions(packet); err != nil {
+			return nil
+		}
+		ber.PrintPacket(packet)
+	}
+
+	return nil
+}
+
+func (req *GSSAPIBindRequest) appendTo(envelope *ber.Packet) error {
+	request := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationBindRequest, nil, "Bind Request")
+	request.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, 3, "Version"))
+	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "User Name"))
+
+	auth := ber.Encode(ber.ClassContext, ber.TypeConstructed, 3, "", "authentication")
+	auth.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "GSSAPI", "SASL Mech"))
+	auth.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, string(req.token[:]), "Credentials"))
+	request.AppendChild(auth)
+	envelope.AppendChild(request)
+	if len(req.Controls) > 0 {
+		envelope.AppendChild(encodeControls(req.Controls))
+	}
 	return nil
 }
