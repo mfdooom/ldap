@@ -590,7 +590,7 @@ type GSSAPIBindRequest struct {
 	// most cases this will be "ldap/<hostname>"
 	SPN string
 	// Authorization entity to authenticate as
-	//AuthZID string
+	user string
 	// KRB5 client as an abstraction over Credentials coming from a keytab,
 	// ccache or freshly acquired from the KDC
 	client *client.Client
@@ -623,6 +623,7 @@ func (l *Conn) GSSAPICCBind() error {
 
 	req := &GSSAPIBindRequest{
 		SPN:    "ldap/dc1.range.com",
+		user:   "bobby",
 		token:  token,
 		client: cl,
 	}
@@ -652,7 +653,7 @@ func (l *Conn) GSSAPICCBind() error {
 func (req *GSSAPIBindRequest) appendTo(envelope *ber.Packet) error {
 	request := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationBindRequest, nil, "Bind Request")
 	request.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, 3, "Version"))
-	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "User Name"))
+	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, req.user, "User Name"))
 
 	auth := ber.Encode(ber.ClassContext, ber.TypeConstructed, 3, "", "authentication")
 	auth.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "GSSAPI", "SASL Mech"))
