@@ -14,7 +14,7 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/jcmturner/gokrb5/v8/client"
 	"github.com/jcmturner/gokrb5/v8/config"
-	"github.com/jcmturner/gokrb5/v8/gssapi"
+	"github.com/jcmturner/gokrb5/v8/credentials"
 	"github.com/jcmturner/gokrb5/v8/spnego"
 )
 
@@ -48,7 +48,7 @@ type SimpleBindRequest struct {
 	// Controls are optional controls to send with the bind request
 	Controls []Control
 	// AllowEmptyPassword sets whether the client allows binding with an empty password
-	// (normally used for unauthenticated bind).
+	// (normally used for unauthenticated bind).gi
 	AllowEmptyPassword bool
 }
 
@@ -606,21 +606,28 @@ type GSSAPIBindRequest struct {
 func (l *Conn) GSSAPICCBind() error {
 
 	c, _ := config.NewFromString(fmt.Sprintf(libdefault, "RANGE.COM", "RANGE.COM", "192.168.168.132", "RANGE.COM"))
-	cl := client.NewWithPassword("bobby", "RANGE.COM", "Welcome1!", c, client.DisablePAFXFAST(true), client.AssumePreAuthentication(false))
+	// cl := client.NewWithPassword("bobby", "RANGE.COM", "Welcome1!", c, client.DisablePAFXFAST(true), client.AssumePreAuthentication(false))
+
+	ccache, _ := credentials.LoadCCache("C:\\Users\\Lab\\Documents\\Dev\\bobby.ccache")
+	cl, err := client.NewFromCCache(ccache, c)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	cl.Login()
 
-	tkt, ekey, _ := cl.GetServiceTicket("ldap/DC1.RANGE.COM")
-	//auth, _ := types.NewAuthenticator(cl.Credentials.Realm(), cl.Credentials.CName())
-	//etype, _ := crypto.GetEtype(ekey.KeyType)
-	//auth.GenerateSeqNumberAndSubKey(ekey.KeyType, etype.GetKeyByteSize())
-	//APReq, _ := messages.NewAPReq(tkt, ekey, auth)
-
-	//apreq_token, _ := APReq.Marshal()
-
-	apreq_token, _ := spnego.NewKRB5TokenAPREQ(cl, tkt, ekey, []int{gssapi.ContextFlagInteg, gssapi.ContextFlagConf, gssapi.ContextFlagMutual}, []int{})
-	token, _ := apreq_token.Marshal()
-
+	tkt, ekey, err := cl.GetServiceTicket("ldap/DC1.RANGE.COM")
+	if err != nil {
+		fmt.Println(err)
+	}
+	apreq_token, err := spnego.NewNegTokenInitKRB5(cl, tkt, ekey)
+	if err != nil {
+		fmt.Println(err)
+	}
+	token, err := apreq_token.Marshal()
+	if err != nil {
+		fmt.Println(err)
+	}
 	req := &GSSAPIBindRequest{
 		SPN:    "ldap/dc1.range.com",
 		user:   "bobby",
@@ -646,6 +653,7 @@ func (l *Conn) GSSAPICCBind() error {
 		}
 		ber.PrintPacket(packet)
 	}
+	ber.PrintPacket(packet)
 
 	return nil
 }
@@ -656,7 +664,7 @@ func (req *GSSAPIBindRequest) appendTo(envelope *ber.Packet) error {
 	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, req.user, "User Name"))
 
 	auth := ber.Encode(ber.ClassContext, ber.TypeConstructed, 3, "", "authentication")
-	auth.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "GSSAPI", "SASL Mech"))
+	auth.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "GSS-SPNEGO", "SASL Mech"))
 	auth.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, string(req.token[:]), "Credentials"))
 	request.AppendChild(auth)
 	envelope.AppendChild(request)
