@@ -606,7 +606,6 @@ func (l *Conn) GSSAPICCBindCCache(krb5conf string, domain string, dcip string, s
 	}
 
 	username := cl.Credentials.UserName()
-	fmt.Println(username)
 	cl.Login()
 
 	sp := spnego.SPNEGOClient(cl, spn)
