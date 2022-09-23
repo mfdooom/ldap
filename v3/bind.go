@@ -18,27 +18,6 @@ import (
 	"github.com/jcmturner/gokrb5/v8/spnego"
 )
 
-// cant seem to figure out how to add a [realm] though
-const (
-	libdefault = `[libdefaults]
-	default_realm = %s
-	dns_lookup_realm = false
-	dns_lookup_kdc = false
-	ticket_lifetime = 24h
-	renew_lifetime = 5
-	forwardable = yes
-	proxiable = true
-	default_tkt_enctypes = rc4-hmac
-	default_tgs_enctypes = rc4-hmac
-	noaddresses = true
-	udp_preference_limit=1
-	[realms]
-	%s = {
-	kdc = %s:88
-	default_domain = %s
-		}`
-)
-
 // SimpleBindRequest represents a username/password bind operation
 type SimpleBindRequest struct {
 	// Username is the name of the Directory object that the client wishes to bind as
@@ -602,35 +581,47 @@ type GSSAPIBindRequest struct {
 	Controls []Control
 }
 
-// GSSAPI Bind using your CCache with an empty AuthZID
-func (l *Conn) GSSAPICCBind() error {
+// GSSAPIBindResult contains the response from the server
+type GSSAPIBindResult struct {
+	Controls []Control
+}
 
-	c, _ := config.NewFromString(fmt.Sprintf(libdefault, "RANGE.COM", "RANGE.COM", "192.168.168.132", "RANGE.COM"))
-	// cl := client.NewWithPassword("bobby", "RANGE.COM", "Welcome1!", c, client.DisablePAFXFAST(true), client.AssumePreAuthentication(false))
+// GSSAPI Bind using username and password
+func (l *Conn) GSSAPICCBindCCache(krb5conf string, domain string, dcip string, spn string, ccacheFile string) (*GSSAPIBindResult, error) {
 
-	ccache, _ := credentials.LoadCCache("C:\\Users\\Lab\\Documents\\Dev\\bobby.ccache")
-	cl, err := client.NewFromCCache(ccache, c)
-	if err != nil {
-		fmt.Println(err)
+	var cl *client.Client
+	var err error
+	result := &GSSAPIBindResult{
+		Controls: make([]Control, 0),
 	}
 
+	domain = strings.ToUpper(domain)
+
+	c, _ := config.NewFromString(fmt.Sprintf(krb5conf, domain, domain, dcip, domain))
+
+	ccache, _ := credentials.LoadCCache(ccacheFile)
+	cl, err = client.NewFromCCache(ccache, c)
+	if err != nil {
+		return result, err
+	}
+
+	username := cl.Credentials.UserName()
+	fmt.Println(username)
 	cl.Login()
 
-	tkt, ekey, err := cl.GetServiceTicket("ldap/DC1.RANGE.COM")
+	sp := spnego.SPNEGOClient(cl, spn)
+	sp_token, err := sp.InitSecContext()
 	if err != nil {
 		fmt.Println(err)
 	}
-	apreq_token, err := spnego.NewNegTokenInitKRB5(cl, tkt, ekey)
+	token, err := sp_token.Marshal()
 	if err != nil {
 		fmt.Println(err)
 	}
-	token, err := apreq_token.Marshal()
-	if err != nil {
-		fmt.Println(err)
-	}
+
 	req := &GSSAPIBindRequest{
-		SPN:    "ldap/dc1.range.com",
-		user:   "bobby",
+		SPN:    spn,
+		user:   username,
 		token:  token,
 		client: cl,
 	}
@@ -638,24 +629,22 @@ func (l *Conn) GSSAPICCBind() error {
 	// Send request steps
 	msgCtx, err := l.doRequest(req)
 	if err != nil {
-		return nil
+		return result, nil
 	}
 	defer l.finishMessage(msgCtx)
 
 	packet, err := l.readPacket(msgCtx)
 	if err != nil {
-		return nil
+		return result, nil
 	}
 	l.Debug.Printf("%d: got response %p", msgCtx.id, packet)
 	if l.Debug {
 		if err = addLDAPDescriptions(packet); err != nil {
-			return nil
+			return result, nil
 		}
 		ber.PrintPacket(packet)
 	}
-	ber.PrintPacket(packet)
-
-	return nil
+	return result, nil
 }
 
 func (req *GSSAPIBindRequest) appendTo(envelope *ber.Packet) error {
