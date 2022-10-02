@@ -13,8 +13,6 @@ import (
 	"github.com/Azure/go-ntlmssp"
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/jcmturner/gokrb5/v8/client"
-	"github.com/jcmturner/gokrb5/v8/config"
-	"github.com/jcmturner/gokrb5/v8/credentials"
 	"github.com/jcmturner/gokrb5/v8/spnego"
 )
 
@@ -575,8 +573,6 @@ type GSSAPIBindRequest struct {
 	client *client.Client
 	// Token
 	token []byte
-	// Are we on the last step
-	//done bool
 	// Controls are optional controls to send with the bind request
 	Controls []Control
 }
@@ -586,23 +582,12 @@ type GSSAPIBindResult struct {
 	Controls []Control
 }
 
-// GSSAPI Bind using username and password
-func (l *Conn) GSSAPICCBindCCache(krb5conf string, domain string, dcip string, spn string, ccacheFile string) (*GSSAPIBindResult, error) {
+// GSSAPI Bind
+func (l *Conn) GSSAPICCBindCCache(cl *client.Client, spn string) (*GSSAPIBindResult, error) {
 
-	var cl *client.Client
 	var err error
 	result := &GSSAPIBindResult{
 		Controls: make([]Control, 0),
-	}
-
-	domain = strings.ToUpper(domain)
-
-	c, _ := config.NewFromString(fmt.Sprintf(krb5conf, domain, domain, dcip, domain))
-
-	ccache, _ := credentials.LoadCCache(ccacheFile)
-	cl, err = client.NewFromCCache(ccache, c)
-	if err != nil {
-		return result, err
 	}
 
 	username := cl.Credentials.UserName()
