@@ -596,11 +596,11 @@ func (l *Conn) GSSAPICCBindCCache(cl *client.Client, spn string) (*GSSAPIBindRes
 	sp := spnego.SPNEGOClient(cl, spn)
 	sp_token, err := sp.InitSecContext()
 	if err != nil {
-		fmt.Println(err)
+		return result, err
 	}
 	token, err := sp_token.Marshal()
 	if err != nil {
-		fmt.Println(err)
+		return result, err
 	}
 
 	req := &GSSAPIBindRequest{
@@ -613,18 +613,18 @@ func (l *Conn) GSSAPICCBindCCache(cl *client.Client, spn string) (*GSSAPIBindRes
 	// Send request steps
 	msgCtx, err := l.doRequest(req)
 	if err != nil {
-		return result, nil
+		return result, err
 	}
 	defer l.finishMessage(msgCtx)
 
 	packet, err := l.readPacket(msgCtx)
 	if err != nil {
-		return result, nil
+		return result, err
 	}
 	l.Debug.Printf("%d: got response %p", msgCtx.id, packet)
 	if l.Debug {
 		if err = addLDAPDescriptions(packet); err != nil {
-			return result, nil
+			return result, err
 		}
 		ber.PrintPacket(packet)
 	}
