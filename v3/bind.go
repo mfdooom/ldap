@@ -628,7 +628,7 @@ func (l *Conn) GSSAPICCBindCCache(cl *client.Client, spn string) (*GSSAPIBindRes
 		}
 		ber.PrintPacket(packet)
 	}
-	return result, nil
+	return result, err
 }
 
 func (req *GSSAPIBindRequest) appendTo(envelope *ber.Packet) error {
